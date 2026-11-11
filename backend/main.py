@@ -70,20 +70,23 @@ async def auth_callback(code: str, request: Request):
         "code": code,
         "redirect_uri": config["discord"]["redirect_uri"],
     }
-    async with httpx.AsyncClient() as client:
-        token_response = await client.post(f"{DISCORD_API}/oauth2/token", data=data)
-        token_response.raise_for_status()
-        token = token_response.json().get("access_token")
-        if not token:
-            raise HTTPException(status_code=502, detail="Discord did not return an access token")
+    try:
+        async with httpx.AsyncClient() as client:
+            token_response = await client.post(f"{DISCORD_API}/oauth2/token", data=data)
+            token_response.raise_for_status()
+            token = token_response.json().get("access_token")
+            if not token:
+                raise HTTPException(status_code=502, detail="Discord did not return an access token")
 
-        user_response = await client.get(
-            f"{DISCORD_API}/users/@me",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        user_response.raise_for_status()
-        user = user_response.json()
-        request.session["user"] = {"id": user["id"], "username": user.get("username", "")}
+            user_response = await client.get(
+                f"{DISCORD_API}/users/@me",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            user_response.raise_for_status()
+            user = user_response.json()
+            request.session["user"] = {"id": user["id"], "username": user.get("username", "")}
+    except httpx.HTTPError as error:
+        raise HTTPException(status_code=502, detail="Discord authentication request failed") from error
     return RedirectResponse("/")
 
 

@@ -83,6 +83,35 @@ class SecretConfigurationTests(unittest.TestCase):
         self.assertEqual(request.session, {'user': {'id': 'test-id', 'username': 'tester'}})
         self.assertEqual(response.headers['location'], '/')
 
+    def test_callback_handles_discord_http_failures(self):
+        """Return a controlled error without replacing the session on provider failures."""
+        module = self.load({'SESSION_SECRET': 's' * 32, 'DISCORD_CLIENT_SECRET': 'synthetic-env-value'})
+        for endpoint in ('/oauth2/token', '/users/@me'):
+            for failure in (400, 500, 'timeout', 'connection'):
+                with self.subTest(endpoint=endpoint, failure=failure):
+                    calls = []
+
+                    def respond(request):
+                        calls.append(request.url.path)
+                        if request.url.path.endswith(endpoint):
+                            if failure == 'timeout':
+                                raise httpx.ReadTimeout('synthetic timeout', request=request)
+                            if failure == 'connection':
+                                raise httpx.ConnectError('synthetic connection failure', request=request)
+                            return httpx.Response(failure, json={'error': 'private provider details'})
+                        return httpx.Response(200, json={'access_token': 'synthetic-token'})
+
+                    provider = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+                    session = {'user': {'id': 'existing-id', 'username': 'existing-user'}}
+                    request = Request({'type': 'http', 'session': session.copy()})
+                    with patch.object(module.httpx, 'AsyncClient', return_value=provider):
+                        with self.assertRaises(module.HTTPException) as raised:
+                            asyncio.run(module.auth_callback('synthetic-code', request))
+                    self.assertEqual(raised.exception.status_code, 502)
+                    self.assertEqual(raised.exception.detail, 'Discord authentication request failed')
+                    self.assertEqual(request.session, session)
+                    self.assertEqual(len(calls), 1 if endpoint == '/oauth2/token' else 2)
+
 
 if __name__ == '__main__':
     unittest.main()
