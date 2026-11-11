@@ -19,6 +19,10 @@ session_secret = os.environ.get("SESSION_SECRET", "")
 if len(session_secret) < 32:
     raise RuntimeError("SESSION_SECRET must be set to a random value of at least 32 characters")
 
+discord_client_secret = os.environ.get("DISCORD_CLIENT_SECRET", "").strip()
+if not discord_client_secret:
+    raise RuntimeError("DISCORD_CLIENT_SECRET must be set")
+
 with (BASE_DIR / "config.yaml").open(encoding="utf-8") as config_file:
     config = yaml.safe_load(config_file)
 
@@ -58,9 +62,10 @@ def login():
 
 @app.get("/auth/callback")
 async def auth_callback(code: str, request: Request):
+    """Exchange a Discord code and store the authenticated user identity in the session."""
     data = {
         "client_id": config["discord"]["client_id"],
-        "client_secret": config["discord"]["client_secret"],
+        "client_secret": discord_client_secret,
         "grant_type": "authorization_code",
         "code": code,
         "redirect_uri": config["discord"]["redirect_uri"],
@@ -97,6 +102,7 @@ def status(request: Request):
 
 @app.get("/api/players")
 def players(request: Request):
+    """Return player details or a query error for each grid, restricted to admins."""
     if not is_admin(request.session):
         raise HTTPException(status_code=403)
     results = {}
