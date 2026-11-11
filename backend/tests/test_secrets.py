@@ -18,6 +18,7 @@ BACKEND = Path(__file__).resolve().parents[1]
 
 class SecretConfigurationTests(unittest.TestCase):
     def setUp(self):
+        """Copy backend code and configuration into an isolated temporary directory."""
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
@@ -43,11 +44,13 @@ class SecretConfigurationTests(unittest.TestCase):
             self.load({}, (BACKEND / '.env.example').read_text())
 
     def test_missing_and_short_session_secrets_fail(self):
+        """Reject both absent and undersized session signing secrets at startup."""
         for value in ('', 'short'):
             with self.subTest(value=value), self.assertRaisesRegex(RuntimeError, 'SESSION_SECRET'):
                 self.load({'SESSION_SECRET': value})
 
     def test_yaml_cannot_supply_discord_secret(self):
+        """Reject empty environment secrets even when legacy YAML contains a value."""
         with (self.root / 'config.yaml').open('a') as config:
             config.write('\n  client_secret: legacy-synthetic-value\n')
         for value in ('', '   '):
@@ -65,6 +68,7 @@ class SecretConfigurationTests(unittest.TestCase):
         calls = []
 
         def respond(request):
+            """Validate the token request and return synthetic Discord API responses."""
             calls.append(request)
             if request.url.path.endswith('/token'):
                 self.assertIn(b'client_secret=synthetic-env-value', request.content)
