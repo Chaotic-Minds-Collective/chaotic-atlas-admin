@@ -16,7 +16,7 @@ BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 
 session_secret = os.environ.get("SESSION_SECRET", "")
-if len(session_secret) < 32:
+if len(session_secret) < 32 or not session_secret.strip():
     raise RuntimeError("SESSION_SECRET must be set to a random value of at least 32 characters")
 
 discord_client_secret = os.environ.get("DISCORD_CLIENT_SECRET", "").strip()
@@ -74,9 +74,15 @@ async def auth_callback(code: str, request: Request):
         async with httpx.AsyncClient() as client:
             token_response = await client.post(f"{DISCORD_API}/oauth2/token", data=data)
             token_response.raise_for_status()
-            token = token_response.json().get("access_token")
+            token_data = token_response.json()
+            if not isinstance(token_data, dict):
+                raise HTTPException(status_code=502, detail="Discord authentication request failed")
+            token = token_data.get("access_token")
             if not token:
                 raise HTTPException(status_code=502, detail="Discord did not return an access token")
+
+            if not isinstance(token, str) or not token.strip():
+                raise HTTPException(status_code=502, detail="Discord authentication request failed")
 
             user_response = await client.get(
                 f"{DISCORD_API}/users/@me",
@@ -84,6 +90,13 @@ async def auth_callback(code: str, request: Request):
             )
             user_response.raise_for_status()
             user = user_response.json()
+            if (
+                not isinstance(user, dict)
+                or not isinstance(user.get("id"), str)
+                or not user["id"].strip()
+                or not isinstance(user.get("username", ""), str)
+            ):
+                raise HTTPException(status_code=502, detail="Discord authentication request failed")
             request.session["user"] = {"id": user["id"], "username": user.get("username", "")}
     except (httpx.HTTPError, json.JSONDecodeError, KeyError) as error:
         raise HTTPException(status_code=502, detail="Discord authentication request failed") from error

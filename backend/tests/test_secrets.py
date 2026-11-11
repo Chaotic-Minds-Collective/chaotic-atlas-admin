@@ -45,9 +45,15 @@ class SecretConfigurationTests(unittest.TestCase):
 
     def test_missing_and_short_session_secrets_fail(self):
         """Reject both absent and undersized session signing secrets at startup."""
-        for value in ('', 'short'):
+        for value in ('', 'short', ' ' * 32, '\t\n' * 32, '\u2003' * 32):
             with self.subTest(value=value), self.assertRaisesRegex(RuntimeError, 'SESSION_SECRET'):
                 self.load({'SESSION_SECRET': value})
+
+    def test_session_secret_is_preserved_verbatim(self):
+        """Keep meaningful whitespace in an otherwise valid signing key."""
+        secret = ' ' + 's' * 32 + ' '
+        module = self.load({'SESSION_SECRET': secret, 'DISCORD_CLIENT_SECRET': 'synthetic-value'})
+        self.assertEqual(module.session_secret, secret)
 
     def test_yaml_cannot_supply_discord_secret(self):
         """Reject empty environment secrets even when legacy YAML contains a value."""
@@ -120,6 +126,29 @@ class SecretConfigurationTests(unittest.TestCase):
             ('/users/@me', {'content': b'private non-JSON response'}, 'Discord authentication request failed'),
             ('/users/@me', {'json': {'username': 'tester'}}, 'Discord authentication request failed'),
             ('/oauth2/token', {'json': {}}, 'Discord did not return an access token'),
+        )
+        malformed = 'Discord authentication request failed'
+        cases += tuple(
+            (endpoint, {'json': payload}, malformed)
+            for endpoint in ('/oauth2/token', '/users/@me')
+            for payload in ([], ['unexpected'], 'unexpected', 123, True)
+        )
+        # Use raw JSON for null because httpx's json=None emits no body.
+        cases += tuple(
+            (endpoint, {'content': b'null'}, malformed)
+            for endpoint in ('/oauth2/token', '/users/@me')
+        )
+        cases += tuple(
+            ('/oauth2/token', {'json': {'access_token': token}}, malformed)
+            for token in (['token'], {'token': 'value'}, 123, True, '   ')
+        )
+        cases += tuple(
+            ('/users/@me', {'json': {'id': user_id, 'username': 'tester'}}, malformed)
+            for user_id in (None, [], {}, 123, True, '', '   ')
+        )
+        cases += tuple(
+            ('/users/@me', {'json': {'id': 'test-id', 'username': username}}, malformed)
+            for username in (None, [], {}, 123, True)
         )
         for endpoint, response_data, detail in cases:
             with self.subTest(endpoint=endpoint, response_data=response_data):
