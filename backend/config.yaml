@@ -14,7 +14,6 @@ grids:
 
 discord:
   client_id: "YOUR_DISCORD_CLIENT_ID"
-  client_secret: "YOUR_DISCORD_CLIENT_SECRET"
   redirect_uri: "http://localhost:8000/auth/callback"
   allowed_users:
     - "685711591282311188"
