@@ -112,6 +112,37 @@ class SecretConfigurationTests(unittest.TestCase):
                     self.assertEqual(request.session, session)
                     self.assertEqual(len(calls), 1 if endpoint == '/oauth2/token' else 2)
 
+    def test_callback_handles_malformed_discord_responses(self):
+        """Reject malformed provider responses without replacing an existing identity."""
+        module = self.load({'SESSION_SECRET': 's' * 32, 'DISCORD_CLIENT_SECRET': 'synthetic-env-value'})
+        cases = (
+            ('/oauth2/token', {'content': b'private non-JSON response'}, 'Discord authentication request failed'),
+            ('/users/@me', {'content': b'private non-JSON response'}, 'Discord authentication request failed'),
+            ('/users/@me', {'json': {'username': 'tester'}}, 'Discord authentication request failed'),
+            ('/oauth2/token', {'json': {}}, 'Discord did not return an access token'),
+        )
+        for endpoint, response_data, detail in cases:
+            with self.subTest(endpoint=endpoint, response_data=response_data):
+                calls = []
+
+                def respond(request):
+                    """Return the malformed response at the selected Discord endpoint."""
+                    calls.append(request.url.path)
+                    if request.url.path.endswith(endpoint):
+                        return httpx.Response(200, **response_data)
+                    return httpx.Response(200, json={'access_token': 'synthetic-token'})
+
+                provider = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+                session = {'user': {'id': 'existing-id', 'username': 'existing-user'}}
+                request = Request({'type': 'http', 'session': session.copy()})
+                with patch.object(module.httpx, 'AsyncClient', return_value=provider):
+                    with self.assertRaises(module.HTTPException) as raised:
+                        asyncio.run(module.auth_callback('synthetic-code', request))
+                self.assertEqual(raised.exception.status_code, 502)
+                self.assertEqual(raised.exception.detail, detail)
+                self.assertEqual(request.session, session)
+                self.assertEqual(len(calls), 1 if endpoint == '/oauth2/token' else 2)
+
 
 if __name__ == '__main__':
     unittest.main()

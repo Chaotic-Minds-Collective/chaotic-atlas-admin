@@ -85,7 +85,7 @@ async def auth_callback(code: str, request: Request):
             user_response.raise_for_status()
             user = user_response.json()
             request.session["user"] = {"id": user["id"], "username": user.get("username", "")}
-    except httpx.HTTPError as error:
+    except (httpx.HTTPError, json.JSONDecodeError, KeyError) as error:
         raise HTTPException(status_code=502, detail="Discord authentication request failed") from error
     return RedirectResponse("/")
 
