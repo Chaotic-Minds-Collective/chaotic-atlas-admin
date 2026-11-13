@@ -4,8 +4,7 @@
 
 # CMG ATLAS Admin Plugin
 
-Administrative tools for the **Chaotic Minds Gaming (CMG)** ATLAS ecosystem.
-
+The **Chaotic Minds Gaming (CMG) ATLAS Admin Plugin** is the administration interface and backend service for the ATLAS project.
 
 ## Backend setup
 
